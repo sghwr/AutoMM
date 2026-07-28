@@ -1,0 +1,41 @@
+Screen {
+    background: #101418;
+}
+
+#main {
+    height: 1fr;
+}
+
+#sessions {
+    width: 68%;
+    height: 1fr;
+    layout: grid;
+    grid-size: 2 3;
+    grid-gutter: 1 2;
+    padding: 1;
+}
+
+#side {
+    width: 32%;
+    height: 1fr;
+    padding: 1 1 1 0;
+}
+
+#queue {
+    height: 60%;
+}
+
+#history {
+    height: 40%;
+}
+
+#input {
+    height: 3;
+    dock: bottom;
+    border: round #5f87ff;
+}
+
+#readonly {
+    padding: 1;
+}
+

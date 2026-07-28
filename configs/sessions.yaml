@@ -1,0 +1,14 @@
+sessions:
+  - id: 0
+    backend: local
+  - id: 1
+    backend: kaggle
+  - id: 2
+    backend: kaggle
+  - id: 3
+    backend: kaggle
+  - id: 4
+    backend: kaggle
+  - id: 5
+    backend: kaggle
+

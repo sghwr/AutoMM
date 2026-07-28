@@ -1,0 +1,6 @@
+username: "your-kaggle-username"
+default_private: true
+default_internet: true
+gpu_limit: 2
+session_limit: 5
+

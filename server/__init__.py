@@ -1,0 +1,2 @@
+"""AutoMM server package."""
+
