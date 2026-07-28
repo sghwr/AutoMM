@@ -27,6 +27,8 @@ Screen {
 
 #history {
     height: 40%;
+    border: round #8a5cff;
+    overflow-y: auto;
 }
 
 #input {
@@ -37,5 +39,15 @@ Screen {
 
 #readonly {
     padding: 1;
+    overflow-y: auto;
 }
 
+RichLog {
+    height: 1fr;
+    border: round #c0c0c0;
+}
+
+Log {
+    height: 1fr;
+    border: round #c0c0c0;
+}

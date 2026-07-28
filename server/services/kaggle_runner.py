@@ -197,7 +197,7 @@ class KaggleRunner:
                 return
             if "error" in lower or "failed" in lower:
                 raise RuntimeError(output or "kaggle kernel failed")
-            time.sleep(30)
+            time.sleep(5)
         raise RuntimeError("kaggle status polling timed out")
 
     def _missing_expected_outputs(self, exp_config: dict[str, Any], output_dir: Path) -> list[str]:

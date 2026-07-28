@@ -1,5 +1,4 @@
 base_url: "http://127.0.0.1:8787"
-refresh_interval_seconds: 2
+refresh_interval_seconds: 1
 log_refresh_interval_seconds: 1
 request_timeout_seconds: 5
-

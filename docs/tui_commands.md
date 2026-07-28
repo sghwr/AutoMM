@@ -15,3 +15,12 @@
 | `/clear 2` | 清理已结束 session 的显示，需要确认 |
 | `/exit` | 退出 client TUI |
 
+## 鼠标操作
+
+| 操作 | 说明 |
+| --- | --- |
+| 点击 Ready Queue 任务 | 选择该任务 |
+| 点击 Session 卡片 | 将已选择任务运行到该 Session |
+| 拖动 Ready Queue 任务到 Session 卡片 | 直接分配运行 |
+
+Command History 和 `/status`、`/log`、`/session` 子界面支持鼠标滚轮滚动。

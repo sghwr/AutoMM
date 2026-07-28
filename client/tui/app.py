@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.widget import Widget
 from textual.widgets import Footer, Header, Input
 
 from client.api.server_client import ServerClient, load_client_config
@@ -27,6 +31,8 @@ class AutoMMTui(App):
         self.client = ServerClient(self.config)
         self.history: list[str] = []
         self.selected: str | None = None
+        self.drag_display_id: str | None = None
+        self.suppress_session_click_until = 0.0
         self.command_history_path = ROOT / "client" / "state" / "command_history.jsonl"
 
     def compose(self) -> ComposeResult:
@@ -58,6 +64,11 @@ class AutoMMTui(App):
         if not command_text:
             return
         self.run_command(command_text)
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        if self.drag_display_id is None or event.screen_x is None or event.screen_y is None:
+            return
+        self.drop_experiment_at(int(event.screen_x), int(event.screen_y))
 
     def run_command(self, command_text: str) -> None:
         try:
@@ -112,6 +123,47 @@ class AutoMMTui(App):
             self._record_command(command_text, False, str(exc))
             self.refresh_history()
 
+    def select_experiment_from_mouse(self, display_id: str) -> None:
+        result = self.client.select(display_id)
+        if result.ok:
+            self.selected = display_id
+        self._record_command(f"[mouse] select {display_id}", result.ok, result.message)
+        self.refresh_dashboard()
+
+    def start_drag_experiment(self, display_id: str) -> None:
+        self.drag_display_id = display_id
+        result = self.client.select(display_id)
+        if result.ok:
+            self.selected = display_id
+        self._record_command(f"[drag] pick {display_id}", result.ok, result.message)
+        self.refresh_dashboard()
+
+    def drop_experiment_at(self, screen_x: int, screen_y: int) -> None:
+        if self.drag_display_id is None:
+            return
+        session = self._session_card_at(screen_x, screen_y)
+        display_id = self.drag_display_id
+        self.drag_display_id = None
+        if session is None or session.session_id is None:
+            self._record_command(f"[drag] cancel {display_id}", False, "drop target is not a session")
+            return
+        self.suppress_session_click_until = time.monotonic() + 0.5
+        self._run_session(session.session_id, display_id, "none", f"[drag] drop {display_id} -> {session.session_id}")
+
+    def run_selected_on_session(self, session_id: int) -> None:
+        if time.monotonic() < self.suppress_session_click_until:
+            return
+        if not self.selected:
+            self._record_command(f"[mouse] run {session_id}", False, "no experiment selected")
+            self.refresh_history()
+            return
+        self._run_session(session_id, self.selected, "none", f"[mouse] run {self.selected} -> {session_id}")
+
+    def _run_session(self, session_id: int, display_id: str | None, accelerator: str, history_label: str) -> None:
+        result = self.client.run(session_id, display_id, accelerator)
+        self._record_command(history_label, result.ok, result.message)
+        self.refresh_dashboard()
+
     def refresh_dashboard(self) -> None:
         result = self.client.dashboard_state()
         if not result.ok:
@@ -145,9 +197,25 @@ class AutoMMTui(App):
             try:
                 item = json.loads(line)
                 status = "OK" if item.get("ok") else "ERR"
-                self.history.append(f"{item.get('ts', '')[-14:-6]} {item.get('command')} {status} {item.get('message')}")
+                ts = self._format_ts(str(item.get("ts", "")))
+                self.history.append(f"{ts} {item.get('command')} {status} {item.get('message')}")
             except json.JSONDecodeError:
                 continue
+
+    def _session_card_at(self, screen_x: int, screen_y: int) -> SessionCard | None:
+        widget, _region = self.get_widget_at(screen_x, screen_y)
+        current: Widget | None = widget
+        while current is not None:
+            if isinstance(current, SessionCard):
+                return cast(SessionCard, current)
+            current = current.parent
+        return None
+
+    def _format_ts(self, value: str) -> str:
+        try:
+            return datetime.fromisoformat(value).strftime("%H:%M:%S")
+        except ValueError:
+            return value[-8:] if len(value) >= 8 else value
 
 
 def main() -> None:

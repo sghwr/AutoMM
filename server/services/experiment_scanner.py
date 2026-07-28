@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import yaml
@@ -23,20 +24,22 @@ class ExperimentScanner:
         self.db = db
         self.events = events
         self.work_folder = work_folder
+        self._lock = Lock()
 
     def scan(self) -> ScanResult:
-        self.work_folder.mkdir(parents=True, exist_ok=True)
-        new_count = 0
-        invalid_count = 0
-        for ack_path in self.work_folder.glob("*/*/ACK.txt"):
-            if self._is_registered(ack_path):
-                continue
-            status = self._register(ack_path)
-            if status == "INVALID":
-                invalid_count += 1
-            else:
-                new_count += 1
-        return ScanResult(new_count, invalid_count)
+        with self._lock:
+            self.work_folder.mkdir(parents=True, exist_ok=True)
+            new_count = 0
+            invalid_count = 0
+            for ack_path in self.work_folder.glob("*/*/ACK.txt"):
+                if self._is_registered(ack_path):
+                    continue
+                status = self._register(ack_path)
+                if status == "INVALID":
+                    invalid_count += 1
+                else:
+                    new_count += 1
+            return ScanResult(new_count, invalid_count)
 
     def _is_registered(self, ack_path: Path) -> bool:
         with self.db.connect() as conn:
@@ -138,4 +141,3 @@ class ExperimentScanner:
     def _next_position(self, conn: Any) -> int:
         row = conn.execute("SELECT COALESCE(MAX(position), 0) + 1 AS position FROM ready_queue").fetchone()
         return int(row["position"])
-

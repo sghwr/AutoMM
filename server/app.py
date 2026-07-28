@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -45,6 +48,29 @@ def create_app() -> FastAPI:
             data={"server": "automm-workflow-server", "status": "online", "version": "0.1.0"},
         )
 
+    @app.on_event("startup")
+    def start_scanner_loop() -> None:
+        stop_event = threading.Event()
+        app.state.scanner_stop_event = stop_event
+
+        def loop() -> None:
+            while not stop_event.is_set():
+                try:
+                    app.state.scanner.scan()
+                except Exception as exc:
+                    app.state.events.write("SCANNER_ERROR", message=str(exc))
+                stop_event.wait(server_config.scan_interval_seconds)
+
+        thread = threading.Thread(target=loop, name="automm-scanner", daemon=True)
+        thread.start()
+        app.state.scanner_thread = thread
+
+    @app.on_event("shutdown")
+    def stop_scanner_loop() -> None:
+        stop_event = getattr(app.state, "scanner_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
+
     @app.exception_handler(WorkflowError)
     async def workflow_error_handler(request: Request, exc: WorkflowError) -> JSONResponse:
         return JSONResponse(
@@ -67,4 +93,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
