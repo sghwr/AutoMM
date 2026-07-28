@@ -4,4 +4,4 @@ textual>=4.0.0
 rich>=14.0.0
 httpx>=0.28.0
 PyYAML>=6.0.2
-
+kaggle>=1.7.0

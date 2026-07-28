@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -48,11 +49,14 @@ class KaggleRunner:
                 kaggle_kernel_id=kernel_id,
                 last_output_line=f"pushing {kernel_id}",
             )
-            self._run_command(["kaggle", "kernels", "push", "-p", str(staging_dir)], log_path)
+            push_output = self._run_command(["kaggle", "kernels", "push", "-p", str(staging_dir)], log_path)
+            kernel_id = self._kernel_id_from_push_output(push_output) or kernel_id
+            self._update_run_kernel(run_id, kernel_id, kernel_id.split("/", 1)[1])
+            self.sessions.update_session(session_id, kaggle_kernel_id=kernel_id)
             self.sessions.update_session(session_id, status="QUEUED", progress=25, last_output_line="kernel accepted")
             self._poll_status(session_id, kernel_id, log_path)
             self.sessions.update_session(session_id, status="RETURNING", progress=90, last_output_line="pulling outputs")
-            self._run_command(["kaggle", "kernels", "output", kernel_id, "-p", str(output_dir)], log_path)
+            self._run_command(["kaggle", "kernels", "output", kernel_id, "-p", str(output_dir), "-o"], log_path)
             missing = self._missing_expected_outputs(exp_config, output_dir)
             if missing:
                 self.sessions.finish_run(
@@ -128,10 +132,10 @@ class KaggleRunner:
         run_id: str,
     ) -> dict[str, Any]:
         kaggle = exp_config.get("kaggle") if isinstance(exp_config.get("kaggle"), dict) else {}
-        slug = str(kaggle.get("kernel_slug") or f"{experiment['display_id']}-{run_id}").lower().replace("_", "-")
+        slug = self._slugify(str(kaggle.get("kernel_slug") or f"{experiment['display_id']}-{run_id}"))
         metadata: dict[str, Any] = {
             "id": f"{self.config.username}/{slug}",
-            "title": str(exp_config.get("title") or experiment["title"]),
+            "title": slug,
             "code_file": entrypoint.name,
             "language": "python",
             "kernel_type": "notebook" if entrypoint.suffix == ".ipynb" else "script",
@@ -154,17 +158,20 @@ class KaggleRunner:
             metadata["competition_sources"] = competition_sources
         return metadata
 
-    def _run_command(self, command: list[str], log_path: Path) -> None:
+    def _run_command(self, command: list[str], log_path: Path) -> str:
         append_log(log_path, f"$ {' '.join(command)}")
         process = subprocess.run(command, text=True, capture_output=True, encoding="utf-8", errors="replace", check=False)
+        combined = "\n".join(part for part in [process.stdout, process.stderr] if part)
         if process.stdout:
             append_log(log_path, process.stdout.rstrip())
         if process.stderr:
             append_log(log_path, process.stderr.rstrip())
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, command)
+        return combined
 
     def _poll_status(self, session_id: int, kernel_id: str, log_path: Path) -> None:
+        last_kernel_logs = ""
         for _ in range(720):
             process = subprocess.run(
                 ["kaggle", "kernels", "status", kernel_id],
@@ -176,8 +183,16 @@ class KaggleRunner:
             )
             output = (process.stdout or process.stderr or "").strip()
             append_log(log_path, output or "status poll returned no output")
+            if process.returncode != 0:
+                raise RuntimeError(output or "kaggle status failed")
+            kernel_logs = self._read_kernel_logs(kernel_id)
+            if kernel_logs and kernel_logs != last_kernel_logs:
+                new_logs = kernel_logs[len(last_kernel_logs) :] if kernel_logs.startswith(last_kernel_logs) else kernel_logs
+                append_log(log_path, new_logs.rstrip())
+                last_kernel_logs = kernel_logs
             lower = output.lower()
-            self.sessions.update_session(session_id, status="RUNNING", progress=50, last_output_line=output[-240:] or "running")
+            last_line = self._last_non_empty_line(kernel_logs) or output[-240:] or "running"
+            self.sessions.update_session(session_id, status="RUNNING", progress=50, last_output_line=last_line[-240:])
             if "complete" in lower:
                 return
             if "error" in lower or "failed" in lower:
@@ -188,7 +203,15 @@ class KaggleRunner:
     def _missing_expected_outputs(self, exp_config: dict[str, Any], output_dir: Path) -> list[str]:
         outputs = exp_config.get("outputs") if isinstance(exp_config.get("outputs"), dict) else {}
         expected = outputs.get("expected", []) or []
-        return [str(name) for name in expected if not (output_dir / str(name)).exists()]
+        missing: list[str] = []
+        for name in expected:
+            expected_path = output_dir / str(name)
+            if expected_path.exists():
+                continue
+            if any(path.name == str(name) for path in output_dir.rglob(str(name))):
+                continue
+            missing.append(str(name))
+        return missing
 
     def _update_run_kernel(self, run_id: str, kernel_id: str, kernel_slug: str) -> None:
         now = datetime.now().astimezone().isoformat()
@@ -199,3 +222,33 @@ class KaggleRunner:
             )
             conn.commit()
 
+    def _slugify(self, value: str) -> str:
+        slug = re.sub(r"[^a-z0-9-]+", "-", value.lower())
+        slug = re.sub(r"-+", "-", slug).strip("-")
+        return slug or f"automm-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+    def _kernel_id_from_push_output(self, output: str) -> str | None:
+        match = re.search(r"https://www\.kaggle\.com/code/([^/\s]+)/([^/\s]+)", output)
+        if not match:
+            return None
+        return f"{match.group(1)}/{match.group(2)}"
+
+    def _read_kernel_logs(self, kernel_id: str) -> str:
+        process = subprocess.run(
+            ["kaggle", "kernels", "logs", kernel_id],
+            text=True,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if process.returncode != 0:
+            return ""
+        return (process.stdout or process.stderr or "").strip()
+
+    def _last_non_empty_line(self, text: str) -> str | None:
+        for line in reversed(text.splitlines()):
+            line = line.strip()
+            if line:
+                return line
+        return None
