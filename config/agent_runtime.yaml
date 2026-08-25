@@ -20,14 +20,14 @@ stage_timeout_seconds:
   literature_review: 2400
   assumption_definition: 1800
   mathematical_formulation: 2400
-  implementation: 600
+  implementation: 1800
   resource_manager: 300
   resource-manager: 300
   sanity_check: 900
   sanity-checker: 900
-  visualization: 600
-  robustness: 900
-  ablation: 900
+  visualization: 1800
+  robustness: 1800
+  ablation: 1800
   cross_question_review: 1800
   final_summary: 1200
   computation: 0

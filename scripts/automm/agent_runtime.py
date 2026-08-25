@@ -59,6 +59,12 @@ def _agent_prompt(agent: str, action: dict[str, Any], action_id: str) -> str:
         raise AgentRuntimeError(f"Agent 未注册或已禁用：{agent}")
     prompt_path = resolve_project_path(entry["prompt"], must_exist=True)
     instructions = prompt_path.read_text(encoding="utf-8")
+    recovery_mode = (action.get("recovery") or {}).get("mode")
+    recovery_hint = ""
+    if recovery_mode == "convergence":
+        recovery_hint = "\n注意：当前处于「收敛模式」（同一失败已连续发生多次）。请复用已有产物，只做最小静态检查并生成合规响应，不要再重复之前失败的操作。\n"
+    elif recovery_mode == "degraded_review":
+        recovery_hint = "\n注意：当前处于「降级审查模式」。请基于已有产物给出结论性响应，不要再发起新计算。\n"
     return f"""你正在作为 AutoMM 专职 Agent `{agent}` 执行一次同步动作。
 必须遵守项目根目录 AGENTS.md 中的 AutoMM Agent 规则，并参考 PROJECT.md（项目指南）与 RESEARCH_LOOP.md（研究循环）。专职说明如下：
 
@@ -70,7 +76,7 @@ def _agent_prompt(agent: str, action: dict[str, Any], action_id: str) -> str:
 ```json
 {json.dumps(action, ensure_ascii=False, indent=2)}
 ```
-
+{recovery_hint}
 必须原样返回 action_id `{action_id}`。先读取相关机器状态和产物，再完成当前阶段工作。
 最终响应只能是符合 `config/agent_response.schema.json` 的 JSON，不要使用 Markdown 代码块。
 状态只能通过 `commands` 白名单请求修改；不要直接编辑 runtime/workflow_state.json 或小问 manifest 的受保护字段。
@@ -146,7 +152,8 @@ def invoke_agent(agent: str, action: dict[str, Any], action_id: str) -> tuple[di
     except jsonschema.ValidationError as exc:
         raise HarnessInvariantError(f"Agent response schema 校验失败：{exc.message}") from exc
     if response["action_id"] != action_id:
-        raise HarnessInvariantError("Agent 响应 action_id 不匹配")
+        # action_id 未回显属 LLM 瞬时错误，重试即可；不应上升为 harness_invariant 硬阻塞。
+        raise AgentTransportError("Agent 响应 action_id 不匹配")
     _validate_response_context(response, action)
     meta = {"command": invocation.command, "provider": provider.backend, "run_directory": relative(run_dir), "returncode": process.returncode}
     write_json(run_dir / "status.json", {"action_id": action_id, "status": "validated", "at": utc_now(), **meta})
@@ -159,7 +166,11 @@ def _validate_response_context(response: dict[str, Any], action: dict[str, Any])
         if expected is not None and response.get(key) != expected:
             raise HarnessInvariantError(f"Agent 响应 {key} 不匹配")
     for value in [*response["artifacts_created"], *response["artifacts_updated"]]:
-        resolve_project_path(value, must_exist=True)
+        text = str(value)
+        # 区分「文件路径」与「逻辑键」：逻辑键（无路径分隔符且无扩展名）不强制文件存在，
+        # 避免 Agent 误填逻辑键（如 "formulation"）时被误判为路径缺失。
+        if "/" in text or "\\" in text or Path(text).suffix:
+            resolve_project_path(text, must_exist=True)
     if response["status"] in {"failed", "blocked"} and response["commands"]:
         raise HarnessInvariantError("failed/blocked 响应不得携带状态变更命令")
     for command in response["commands"]:
