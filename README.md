@@ -1,6 +1,6 @@
 # AutoMM 0.0.4 Beta
 
-AutoMM 是基于dsh生态开发的，面向数学建模竞赛的全自动研究 Harness。它可以做到自动化按小问顺序推进问题理解、文献研究、假设、公式、实现、计算、可行性校验、可视化和可选稳健性实验，最后生成可追溯的 `reports/final_summary.md`。
+AutoMM 是基于dsh生态开发的，面向数学建模竞赛的全自动研究 Harness。它可以做到自动化地按小问顺序推进问题理解、文献研究、假设、公式、实现、计算、可行性校验、可视化和可选稳健性实验，最后生成可追溯的 `reports/final_summary.md`。
 
 ## QuickStart
 
