@@ -1,11 +1,11 @@
-# AutoMM 0.0.4-dsh：从零 clone 到启动 Full Smoke（Step-by-Step）
+# AutoMM 0.0.4-dsh 配置教程
 
 > 面向 Windows + PowerShell。从「刚 clone 仓库」走到「全部配置完成 + 拿到启动 prompt」。
-> 全程不需要改任何 harness 源码；秘密/题目/数据都由你手动放置。
-
+> 全程不需要改任何 harness 源码；ssh密钥/题目/数据都由你手动放置。
+> 本教程默认模式选择为ssh，local模式同理
 ---
 
-## 0. 准备清单（先核对）
+## 0. 准备&环境说明
 
 | 需要 | 说明 / 如何确认 |
 |---|---|
@@ -27,7 +27,7 @@ git clone <repo-url> AutoMM
 cd AutoMM
 ```
 
-> 之后所有命令都在这个目录下执行（用 venv 的 python，别用系统 python）。
+> 之后所有命令都在这个目录下执行（注意启动项目文件下的venv）。
 
 ---
 
@@ -57,13 +57,13 @@ dsh --profile headless "只输出 JSON 对象 {\"status\":\"ok\"}，不要解释
 
 ## 3. 放置题目与数据
 
-仓库按 provenance 约定不含真实比赛数据，需要你手动放入：
+仓库按 provenance 约定不含真实比赛数据，需要你手动放入：（以2023年国赛C题为例）
 
 ```text
 request/problem.md                  # 题面
 request/attachments/C题.pdf         # 官方附件
-data/附件1.xlsx                     # 耕地/作物基础
-data/附件2.xlsx                     # 2023 统计
+data/附件1.xlsx                     # 数据
+data/附件2.xlsx                     # 数据
 data/附件3/result1_1.xlsx           # 提交模板
 data/附件3/result1_2.xlsx           # 提交模板
 data/附件3/result2.xlsx             # 提交模板
@@ -73,7 +73,7 @@ data/附件3/result2.xlsx             # 提交模板
 
 ## 4. 创建 Python venv 并装依赖
 
-用 uv（快）：
+用 uv（速度较快）：
 
 ```powershell
 uv venv
@@ -95,7 +95,7 @@ pip install -r scripts\requirements.txt
 python -c "import numpy, pandas, scipy, paramiko, jsonschema, psutil; print('deps ok')"
 ```
 
-> ⚠️ 之后所有 harness 命令都必须用 venv 的 python（激活后直接 `python`，或用
+> 注意：之后所有 harness 命令都必须用 venv 的 python（激活后直接 `python`，或用
 > `.\.venv\Scripts\python.exe`）。用系统 python 会报 `ModuleNotFoundError`。
 
 ---
@@ -119,8 +119,9 @@ python scripts\configure_remote.py
 - 选 `local` → 跳过 SSH，`default_backend` 写 `local`。
 
 接着填 QQ 邮箱（SMTP/IMAP/授权码/收发件人/allowed_senders），最后它会问是否探测连接。
+> 本项目强制依赖qq邮箱异步确认，所以强烈建议新建一个qq邮箱账号用来发送通知并接受指令。
 
-**只读查看当前配置**（随时可查，密码自动脱敏）：
+**只读查看当前配置** ：
 
 ```powershell
 python scripts\configure_remote.py show
@@ -129,12 +130,12 @@ python scripts\configure_remote.py show
 > 脚本只写三个 config（`ssh.yaml` / `notifications.yaml` / `compute.yaml`），写前自动备份，
 > 不碰任何 `scripts/automm` 逻辑。可反复运行（当前值作为默认）。
 
-### 5.1 邮箱三处必对（最容易踩坑）
+### 5.1 邮箱配置
 
 ```yaml
-smtp_host: smtp.qq.com      # 是点 .，不是 @
-imap_host: imap.qq.com      # 是点 .，不是 @
-password: "<16位授权码>"     # 授权码，不是 QQ 登录密码
+smtp_host: smtp.qq.com      
+imap_host: imap.qq.com      
+password: "<16位授权码>"     # 授权码，不是 QQ 登录密码，具体可以在qq邮箱网页端-设置-账号与安全-安全设置中，找到POP3/IMAP/SMTP/Exchange/CardDAV 服务开启后自行配置
 ```
 
 ---
@@ -142,14 +143,14 @@ password: "<16位授权码>"     # 授权码，不是 QQ 登录密码
 ## 6. 初始化题目
 
 ```powershell
-python scripts\harness.py init-problem --problem-id crop_2024 --questions 3
+python scripts\harness.py init-problem --problem-id <你自己的具体题目> --questions <题目的具体小问数量>
 ```
 
-预期输出 `problems/crop_2024`，并在其下生成 `prob01/prob02/prob03`。
+预期输出 `problems/题目名称`，并在其下生成 `probxx`。
 
 ---
 
-## 7. 逐项自检（建议按顺序跑）
+## 7. 逐项顺序自检
 
 ```powershell
 # 1) 配置校验
@@ -171,7 +172,7 @@ python scripts\notify_email.py poll
 
 ---
 
-## 8. 启动 Full Smoke
+## 8. 启动harness
 
 先单步跑一个动作，确认 dsh headless 真实调用 OK：
 
@@ -206,7 +207,7 @@ python monitor\monitor.py
 - 页面功能：运行状态徽标、小问/阶段两个滚动窗口、资产树 + markdown/公式查看器、TASKS/EVENTS/DAEMON LOG 三栏。
 
 ---
-## 附：启动 Full Smoke 的标准化 Prompt（可复用）
+## 附：启动 harness 的标准化 Prompt
 
 ```text
 你是 AutoMM 全自动数学建模 harness 的调度操作员，负责把一次真实数模竞赛题目完整跑通并汇报结果。
