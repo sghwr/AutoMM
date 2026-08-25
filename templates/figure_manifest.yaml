@@ -1,0 +1,2 @@
+figures: []
+# 每项字段：stable_id、question_id、assumption_version、title、path、source_data、script、quality_status、visual_review、included_in_summary。

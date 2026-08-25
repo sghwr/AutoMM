@@ -1,0 +1,13 @@
+version: assumption_v001
+status: candidate
+created_at: ""
+parent_version: null
+assumptions: []
+formulation_versions: []
+active_formulation: null
+accepted_formulation: null
+tasks: []
+sanity_status: pending
+conclusion_id: ""
+conclusion_version: 0
+conclusion_hash: ""

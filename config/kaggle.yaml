@@ -1,0 +1,7 @@
+enabled: false
+username: ""
+auth_token: ""
+auth_token_env: KAGGLE_API_TOKEN
+workspace: ""
+poll_interval_seconds: 60
+download_results: true

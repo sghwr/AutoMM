@@ -1,0 +1,42 @@
+mode: full_auto
+wake_interval_minutes: 10
+one_action_per_wake: true
+single_active_problem: true
+question_id_format: "prob{index:02d}"
+question_count_min: 1
+question_count_max: null
+allow_parallel_questions: false
+allow_parallel_experiments_within_question: true
+question_completion_email_is_notification_only: true
+final_summary_requires_human_approval: false
+max_assumption_versions: 5
+rejected_versions_before_research_refresh: 3
+pending_wakeup_coalescing: true
+running_action_policy: wait
+research_agent_mode: synchronous
+compute_agent_mode: asynchronous_submit
+stages:
+  - problem_understanding
+  - literature_review
+  - assumption_definition
+  - mathematical_formulation
+  - implementation
+  - computation
+  - sanity_check
+  - visualization
+  - robustness
+  - ablation
+  - locally_completed
+  - cross_question_review
+  - completed
+optional_stages:
+  - robustness
+  - ablation
+flags:
+  pause: runtime/flags/pause.flag
+  stop: runtime/flags/stop.flag
+  resume: runtime/flags/resume.flag
+  pending_wakeup: runtime/flags/pending_wakeup.flag
+lock:
+  path: runtime/locks/orchestrator.lock
+  stale_after_minutes: 60

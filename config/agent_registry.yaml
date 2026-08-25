@@ -1,0 +1,42 @@
+agents:
+  problem-decomposer:
+    prompt: agents/problem-decomposer.md
+    stages: [problem_understanding]
+  literature-researcher:
+    prompt: agents/literature-researcher.md
+    stages: [literature_review]
+  assumption-manager:
+    prompt: agents/assumption-manager.md
+    stages: [assumption_definition]
+  mathematical-formulator:
+    prompt: agents/mathematical-formulator.md
+    stages: [mathematical_formulation]
+  implementation-agent:
+    prompt: agents/implementation-agent.md
+    stages: [implementation, computation_repair]
+  resource-manager:
+    prompt: agents/resource-manager.md
+    stages: [computation]
+  sanity-checker:
+    prompt: agents/sanity-checker.md
+    stages: [sanity_check, computation_result]
+  visualization-agent:
+    prompt: agents/visualization-agent.md
+    stages: [visualization]
+  robustness-analyst:
+    prompt: agents/robustness-analyst.md
+    stages: [robustness]
+  ablation-analyst:
+    prompt: agents/ablation-analyst.md
+    stages: [ablation]
+  cross-question-reviewer:
+    prompt: agents/cross-question-reviewer.md
+    stages: [cross_question_review]
+  template-agent:
+    prompt: agents/template-agent.md
+    stages: [agent_template]
+  paper-writer:
+    prompt: agents/paper-writer.md
+    enabled: false
+    stages: []
+

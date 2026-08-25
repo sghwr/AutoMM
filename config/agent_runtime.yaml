@@ -1,0 +1,51 @@
+enabled: true
+# LLM 后端：dsh_headless（默认，DeepSeek Harness）或 codex_exec（回归/降级）。
+provider: dsh_headless
+# dsh CLI 可执行名。
+executable: dsh
+# dsh 的 profile；headless 为一次性任务 profile。
+profile: headless
+# dsh headless 的工具呈现模式：native | code | both。AutoMM Agent 需要 read/write/edit/bash/pwsh，用 native。
+tools_mode: native
+# 以下字段仅 codex_exec 后端使用；dsh 后端忽略。
+model: ""
+sandbox: workspace-write
+automatic_approval: true
+ephemeral: false
+skip_git_repo_check: true
+timeout_seconds: 1800
+stage_timeout_seconds:
+  default: 1800
+  problem_understanding: 1200
+  literature_review: 2400
+  assumption_definition: 1800
+  mathematical_formulation: 2400
+  implementation: 600
+  resource_manager: 300
+  resource-manager: 300
+  sanity_check: 900
+  sanity-checker: 900
+  visualization: 600
+  robustness: 900
+  ablation: 900
+  cross_question_review: 1800
+  final_summary: 1200
+  computation: 0
+timeout_policy:
+  action_timeout: retry_next_wake
+  preserve_drafts: true
+  preserve_logs: true
+  second_timeout_mode: convergence
+output_schema: config/agent_response.schema.json
+registry: config/agent_registry.yaml
+max_output_chars: 200000
+capability_probe_on_start: true
+# 仅 codex_exec 后端的 CLI 能力白名单；dsh 后端只用 `dsh --version` 探测。
+required_capabilities:
+  - --output-schema
+  - --output-last-message
+  - --skip-git-repo-check
+  - --json
+  - --sandbox
+  - --approve-for-me
+  - --cd

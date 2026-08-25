@@ -1,0 +1,73 @@
+strict_stage_transitions: true
+allowed_transitions:
+  idle:
+    - problem_understanding
+  problem_understanding:
+    - literature_review
+  literature_review:
+    - assumption_definition
+  assumption_definition:
+    - literature_review
+    - mathematical_formulation
+  mathematical_formulation:
+    - assumption_definition
+    - implementation
+  implementation:
+    - mathematical_formulation
+    - computation
+  computation:
+    - mathematical_formulation
+    - implementation
+    - sanity_check
+  sanity_check:
+    - assumption_definition
+    - mathematical_formulation
+    - implementation
+    - visualization
+    - ablation
+    - locally_completed
+  visualization:
+    - sanity_check
+    - robustness
+    - ablation
+    - locally_completed
+  robustness:
+    - sanity_check
+    - ablation
+    - locally_completed
+  ablation:
+    - locally_completed
+  locally_completed:
+    - problem_understanding
+    - cross_question_review
+  cross_question_review:
+    - assumption_definition
+    - completed
+  completed: []
+required_artifacts_for_local_completion:
+  - problem_understanding
+  - literature
+  - assumptions
+  - formulation
+  - implementation
+  - computation
+  - visualization
+  - sanity_check
+human_block_allowed_for:
+  - missing_input
+  - invalid_credentials
+  - remote_unavailable
+  - human_model_choice
+  - all_formulations_invalid
+  - unrecoverable_harness_state
+never_human_block_for:
+  - agent_timeout
+  - smtp_failure
+  - worker_interruption
+  - python_exception
+  - solver_exception
+  - single_infeasible_attempt
+  - optional_experiment_failure
+quality_acceptance:
+  allow_pass_with_warning: true
+  allow_degraded_review: true

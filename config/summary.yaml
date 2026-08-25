@@ -1,0 +1,9 @@
+enabled: true
+output: reports/final_summary.md
+archive_output_template: reports/problems/{problem_id}/final_summary.md
+require_cross_question_review: true
+include_question_summaries: true
+include_figures: true
+include_citations: true
+include_task_trace: true
+send_completion_notification: true

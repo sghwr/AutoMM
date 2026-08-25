@@ -1,0 +1,56 @@
+default_backend: local
+max_local_concurrent_tasks: 4
+max_remote_concurrent_tasks: 2
+duplicate_task_policy: block
+local_worker_formula: "min(configured_max, max(1, cpu_count - 1), memory_slots)"
+memory_per_worker_gb: 2
+force_concurrency_override: false
+task_timeout_seconds: 0
+worker_startup_timeout_seconds: 60
+worker_heartbeat_interval_seconds: 30
+worker_lost_grace_seconds: 120
+code_repair_attempts: 1
+timeout_retry_attempts: 2
+retry:
+  infrastructure_transient: 3
+  code_runtime: 2
+  model_revision: 2
+  total_productive_rounds: 10
+task_id_fields:
+  - problem_id
+  - question_id
+  - stage
+  - code_hash
+  - config_hash
+  - input_hash
+  - assumption_version
+  - formulation_version
+  - backend
+remote_poll_interval_seconds: 60
+remote_heartbeat_timeout_seconds: 300
+retry_lost_remote_tasks: true
+max_retries: 2
+quality:
+  allow_feasible_not_optimal: true
+  allow_missing_mip_gap_with_incumbent: true
+  require_constraint_residuals: true
+github_relay:
+  enabled: false
+  repository: ""
+  branch: main
+  push_paths:
+    - request/
+    - data/
+    - problems/
+    - config/
+    - scripts/
+  pull_paths:
+    - problems/
+    - runtime/
+    - reports/
+cleanup:
+  trash_retention_days: 7
+  allowed_kinds:
+    - cache
+    - temporary_conversion
+    - reproducible_intermediate

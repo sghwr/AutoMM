@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AutoMM Agent Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action_id",
+    "status",
+    "problem_id",
+    "question_id",
+    "assumption_version",
+    "formulation_version",
+    "artifacts_created",
+    "artifacts_updated",
+    "findings",
+    "warnings",
+    "blocking_reasons",
+    "recommended_next_stage",
+    "commands"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "action_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["success", "warning", "failed", "blocked"]},
+    "failure_class": {"type": ["string", "null"], "enum": ["harness_invariant", "agent_transport", "infrastructure_transient", "code_runtime", "model_infeasible", "quality_warning", "external_human_required", null]},
+    "problem_id": {"type": ["string", "null"]},
+    "question_id": {"type": ["string", "null"]},
+    "assumption_version": {"type": ["string", "null"]},
+    "formulation_version": {"type": ["string", "null"]},
+    "artifacts_created": {"type": "array", "items": {"type": "string"}},
+    "artifacts_updated": {"type": "array", "items": {"type": "string"}},
+    "findings": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "blocking_reasons": {"type": "array", "items": {"type": "string"}},
+    "recommended_next_stage": {"type": ["string", "null"]},
+    "commands": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "transition"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target_stage", "reason"],
+                "properties": {
+                  "target_stage": {"type": "string"},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "record_artifact"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "completed"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "completed": {"type": "boolean"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "record_sanity"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["level", "status", "reason", "failure_type", "return_stage"],
+                "properties": {
+                  "level": {"type": "string", "enum": ["level_1_4", "level_5", "level_6"]},
+                  "status": {"type": "string", "enum": ["PASS", "PASS_WITH_WARNING", "NEEDS_REVISION", "VERSION_REJECTED"]},
+                  "reason": {"type": "string"},
+                  "failure_type": {"type": ["string", "null"]},
+                  "return_stage": {"type": ["string", "null"]}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "record_optional_stage"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["stage", "decision", "reason"],
+                "properties": {
+                  "stage": {"type": "string", "enum": ["robustness", "ablation"]},
+                  "decision": {"type": "string", "enum": ["completed", "skipped"]},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "record_conclusion"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["conclusion_id", "content"],
+                "properties": {
+                  "conclusion_id": {"type": "string"},
+                  "content": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "clear_stale"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["reason"],
+                "properties": {"reason": {"type": "string"}}
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "append_ledger"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["question", "stage", "hypothesis", "setup", "result", "sanity", "conclusion", "next"],
+                "properties": {
+                  "question": {"type": "string"},
+                  "stage": {"type": "string"},
+                  "hypothesis": {"type": "string"},
+                  "setup": {"type": "string"},
+                  "result": {"type": "string"},
+                  "sanity": {"type": "string"},
+                  "conclusion": {"type": "string"},
+                  "next": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "decide_assumption_version"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["decision", "reason"],
+                "properties": {
+                  "decision": {"type": "string", "enum": ["ACCEPT", "REJECT"]},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "decide_formulation_version"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["decision", "reason"],
+                "properties": {
+                  "decision": {"type": "string", "enum": ["ACCEPT", "REJECT"]},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "record_figure_review"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["stable_id", "status", "reason"],
+                "properties": {
+                  "stable_id": {"type": "string"},
+                  "status": {"type": "string", "enum": ["passed", "needs_revision"]},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": {"type": "string", "const": "mark_cross_question_review"},
+              "arguments": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["status", "reason"],
+                "properties": {
+                  "status": {"type": "string", "enum": ["passed", "needs_revision"]},
+                  "reason": {"type": "string"}
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+theme: publication
+preferred_font: "Microsoft YaHei"
+fallback_fonts:
+  - "PingFang SC"
+  - "Noto Sans CJK SC"
+  - "Source Han Sans SC"
+  - "WenQuanYi Micro Hei"
+  - "SimHei"
+  - "Arial Unicode MS"
+font_size: 11
+title_size: 14
+figure_width: 10
+figure_height: 6
+dpi: 180
+background: white
+palette:
+  primary: "#1F4E79"
+  secondary: "#70AD47"
+  accent: "#ED7D31"
+  neutral: "#7F8C8D"
+  warning: "#C00000"
+formats:
+  - png
+minimum_figures_per_question: 5
+count_only_accepted_version: true
+stable_id_template: "{question_id}_fig_{slug}_{short_hash}"
+regenerate_on_overlap: true
+three_dimensional:
+  encouraged_when_semantically_useful: true
+  preferred_use_cases:
+    - spatial_structure
+    - response_surface
+    - dynamic_trajectory
+    - multi_variable_relationship
+    - optimization_landscape
+  require_readable_viewpoint: true
+  require_occlusion_check: true
+  require_2d_companion_when_projection_is_ambiguous: true
+quality:
+  minimum_width_px: 800
+  minimum_height_px: 480
+  maximum_dark_border_ratio: 0.35
+  require_automated_pass: true
+  require_visual_review: true

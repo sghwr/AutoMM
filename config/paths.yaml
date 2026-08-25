@@ -1,0 +1,10 @@
+request: request/
+request_attachments: request/attachments/
+data: data/
+problems: problems/
+reports: reports/
+knowledge: knowledge/
+templates: templates/
+runtime: runtime/
+scripts: scripts/
+trash: .trash/

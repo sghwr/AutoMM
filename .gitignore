@@ -1,0 +1,11 @@
+config/ssh.local.yaml
+config/kaggle.local.yaml
+config/notifications.local.yaml
+runtime/
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/
+.trash/
+.tmp/

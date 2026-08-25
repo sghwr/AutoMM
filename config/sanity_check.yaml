@@ -1,0 +1,41 @@
+enabled: true
+block_on_hard_failure: true
+statuses:
+  - PASS
+  - PASS_WITH_WARNING
+  - NEEDS_REVISION
+  - VERSION_REJECTED
+levels:
+  level_1:
+    name: 文件和运行完整性
+    trigger: after_computation
+  level_2:
+    name: 数值范围和约束
+    trigger: after_computation
+  level_3:
+    name: 量纲和公式
+    trigger: after_computation
+  level_4:
+    name: 常识与文献合理性
+    trigger: after_computation
+  level_5:
+    name: 跨小问一致性
+    trigger: after_all_questions_locally_completed
+  level_6:
+    name: 鲁棒性和敏感性
+    trigger: after_robustness
+hard_gates:
+  key_assumption_citation: true
+  physical_and_economic_common_sense: true
+  cross_question_consistency: true
+warnings:
+  social_common_sense: true
+  data_support: true
+  units_and_dimensions: true
+  extreme_behavior: true
+  controlled_result_impact: true
+failure_routes:
+  assumption_or_literature: assumption_definition
+  formula_boundary_dimension_solvability: mathematical_formulation
+  code_or_runtime: implementation
+  cross_question_conflict: earliest_conflicting_stage

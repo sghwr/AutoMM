@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "unit: isolated unit tests without network or a real LLM CLI",
+  "integration: local integration tests with mocked external boundaries",
+  "e2e: local synthetic-problem tests using a real LLM CLI",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/e2e_synthetic_driver.py" = ["E501"]

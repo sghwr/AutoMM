@@ -1,0 +1,44 @@
+problem_id: ""
+question_id: prob01
+status: not_started
+stage: problem_understanding
+dependencies: []
+active_assumption_version: 0
+active_formulation_version: 0
+accepted_formulation_version: 0
+consecutive_rejections: 0
+literature_refreshes: 0
+literature_refresh_required: false
+conclusion:
+  conclusion_id: ""
+  version: 0
+  content_hash: ""
+sanity:
+  level_1_4: pending
+  level_5: pending
+  level_6: not_applicable
+optional_stages:
+  robustness:
+    decision: pending
+    reason: ""
+  ablation:
+    decision: pending
+    reason: ""
+artifacts:
+  problem_understanding: false
+  literature: false
+  assumptions: false
+  formulation: false
+  implementation: false
+  computation: false
+  visualization: false
+  sanity_check: false
+  robustness: false
+  ablation: false
+  cross_question_review: false
+notification:
+  sent: false
+  attempts: 0
+stale:
+  value: false
+  caused_by: []

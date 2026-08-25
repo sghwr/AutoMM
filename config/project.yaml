@@ -1,0 +1,11 @@
+project_id: automm_project
+language: zh-CN
+mode: full_auto
+paths_file: config/paths.yaml
+active_problem: ""
+request_file: request/problem.md
+metadata:
+  competition_name: ""
+  year: ""
+  team_name: ""
+  team_members: []

@@ -1,0 +1,20 @@
+max_items_per_question: 25
+max_search_minutes_per_round: 30
+minimum_items_per_question: 1
+key_assumption_requires_verified_reference: true
+preferred_authority_tiers:
+  - A
+  - B
+metadata_verification:
+  enabled: true
+  providers:
+    - crossref
+    - openalex
+  request_timeout_seconds: 20
+  cache_directory: runtime/research_cache
+dry_conditions:
+  item_limit_reached: true
+  time_limit_reached: true
+  all_candidates_decided: true
+  no_new_assumption_family: true
+

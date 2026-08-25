@@ -1,0 +1,4 @@
+enabled: false
+status: deferred
+reason: 初版本只生成 reports/final_summary.md，不生成论文草稿或终稿
+replacement: reports/final_summary.md

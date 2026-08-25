@@ -1,0 +1,10 @@
+enabled: false
+host: ""
+port: 22
+username: ""
+password: ""
+private_key_path: ""
+remote_root: "automm/"
+password_env: AUTOMM_SSH_PASSWORD
+private_key_env: AUTOMM_SSH_PRIVATE_KEY
+connect_timeout_seconds: 20

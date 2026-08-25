@@ -1,0 +1,27 @@
+runner: python
+run_mode: one_shot
+poll_interval_seconds: 600
+mail_poll_before_action: true
+execute_non_agent_actions: true
+max_actions_per_wake: 1
+transaction_journal: runtime/transactions.jsonl
+action_runs_directory: runtime/actions
+daemon:
+  lock_file: runtime/daemon/daemon.lock
+  pid_file: runtime/daemon/daemon.pid
+  stop_flag: runtime/daemon/stop.flag
+  log_file: runtime/daemon/daemon.log
+  catch_up_pending_wakeup: true
+failure_policy:
+  agent_timeout: retry_current_stage
+  transport_failure: retry_current_stage
+  code_runtime_failure: route_by_failure_type
+  invalid_agent_response: harness_invariant_error
+  state_apply_failure: harness_invariant_error
+  smtp_failure: warning_only
+recovery:
+  max_productive_rounds: 10
+  same_fingerprint_limit: 2
+  infrastructure_retries: 3
+  preserve_drafts: true
+  degraded_review_after_rounds: 10
