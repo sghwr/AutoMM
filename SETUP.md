@@ -245,7 +245,15 @@ python monitor\monitor.py
 ## 六、结束与交付
 - 结束条件：current_stage=completed 且 3 小问都过 sanity + 跨小问审查，或 daemon 进入 blocked/idle。
 - 汇报：① 每题结论与 result1_1/result1_2/result2.xlsx 路径；② 各阶段 sanity 结论；③ 失败/降级及原因；④ 全程耗时。
-- 卡住时报告「阶段 + failure_class + 原始日志」，不要擅自绕过门禁。
+- blocked 处置规程（遇到 recovery_status=human_blocked 时）
+1. 定位：读 runtime/actions/<action_id>/stdout.log，grep "action_id"，
+   比对 Agent 返回的 action_id 与预期 action_id。
+2. 若是「action_id 幻觉」（返回了形如 act-cqr-xxx 的自造 ID，且 problem_id/question_id 正确）
+   → 复位后继续：
+     - python 改 workflow_state.json：recovery_status="normal"、failure_class=null、
+       blocking=[]、recovery 重置；
+     - 写 runtime/flags/pending_wakeup.flag 唤醒 daemon。
+3. 若是「真 harness_invariant」（schema 校验失败 / problem_id 不匹配 / 命令批回滚）则不做变化
 
 ## 七、本次属于 full_smoke
 - 首次端到端实跑，目标是暴露并修复问题；报错优先带回「阶段 + failure_class + 日志」，不要反复重试同一命令。
