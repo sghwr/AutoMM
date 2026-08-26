@@ -86,6 +86,7 @@ def note_recovery(
     """更新恢复计数；同一指纹无进展两轮后切换收敛模式。"""
     progress = progress or {}
     recovery = dict(state.get("recovery") or {})
+    recovery.setdefault("mode", "normal")
     limits = recovery_limits(problem_id, question_id)
     fingerprint = error_fingerprint(failure_class=failure_class, error=error, context=progress)
     previous = recovery.get("last_fingerprint")
@@ -102,6 +103,10 @@ def note_recovery(
     })
     if recovery["same_fingerprint_streak"] >= limits["same_fingerprint_limit"]:
         recovery["mode"] = "convergence"
+    # 可重试失败（agent_transport / infrastructure_transient）达到重试上限后，停止自动重试，进入降级审查，
+    # 避免同一动作无限重试。
+    if failure_class in {"agent_transport", "infrastructure_transient"} and recovery["total_rounds"] > limits["infrastructure_retries"]:
+        recovery["mode"] = "degraded_review"
     if recovery["productive_rounds"] >= limits["max_productive_rounds"]:
         recovery["mode"] = "degraded_review"
     state["recovery"] = recovery

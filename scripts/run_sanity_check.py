@@ -83,10 +83,16 @@ def build_report(directory: Path, task_id: str | None) -> dict[str, Any]:
         for name in ("status.json", "task.json"):
             if not (TASK_ROOT / task_id / name).exists():
                 failures.append(f"任务缺少 {name}")
+        backend = task_status.get("backend", "local")
+        downloaded = set(task_status.get("downloaded") or [])
         for field in ("stdout", "stderr"):
             log_path = task_status.get(field)
-            if not log_path or not resolve_project_path(log_path).is_file():
-                failures.append(f"任务当前 attempt 缺少 {field} 日志")
+            if log_path and resolve_project_path(log_path).is_file():
+                continue
+            # 远端任务日志经 reconcile_remote 拉取到 remote_results，status 不含 stdout/stderr 字段
+            if backend in {"ssh", "kaggle"} and f"{field}.log" in downloaded:
+                continue
+            failures.append(f"任务当前 attempt 缺少 {field} 日志")
 
     candidates = [path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() in {".csv", ".json", ".npy", ".npz"} and path.name not in {"machine_sanity.json", "archive_manifest.json"}]
     numeric = [inspect_numeric_file(path) for path in candidates]
