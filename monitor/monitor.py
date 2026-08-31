@@ -64,10 +64,14 @@ def api_state() -> dict:
     backends = {t.get("backend") for t in tasks if t.get("backend")}
     default_backend = str(compute.get("default_backend", "local")).lower()
     compute_mode = "remote" if (default_backend in {"ssh", "kaggle"} or "ssh" in backends or "kaggle" in backends) else "local"
+    problem_id = state.get("active_problem")
+    problem = {}
+    if problem_id:
+        problem = _read_json(ROOT / "problems" / str(problem_id) / "problem_state.json")
     return {
         "control": state.get("control", "?"),
         "recovery_status": state.get("recovery_status", "normal"),
-        "problem_id": state.get("active_problem"),
+        "problem_id": problem_id,
         "question": state.get("current_question"),
         "stage": state.get("current_stage"),
         "mode": {"compute": compute_mode, "llm": str(runtime.get("provider", "unknown"))},
@@ -76,6 +80,9 @@ def api_state() -> dict:
         "blocking": state.get("blocking", []),
         "last_action": state.get("last_action"),
         "updated_at": state.get("updated_at"),
+        "problem_summary_status": problem.get("summary_status"),
+        "problem_completion_notification": problem.get("completion_notification"),
+        "cross_question_review": problem.get("cross_question_review"),
     }
 
 

@@ -18,7 +18,7 @@ from .failure_policy import AgentTimeoutError, classify_exception, note_recovery
 from .problems import create_assumption_version, create_formulation_version, load_problem, problem_dir, question_manifest
 from .state import load_state, reconcile_control_flags, save_state
 from .summary import build_final_summary
-from .tasks import GROUP_ROOT, TASK_ROOT, reconcile_tasks
+from .tasks import GROUP_ROOT, TASK_ROOT, reconcile_stale_computation_groups, reconcile_tasks
 from .workflow import next_action, transition
 
 
@@ -55,7 +55,11 @@ def acquire_runner_lock(action_id: str) -> tuple[FileLock, bool]:
 
 
 def _set_next_wake(state: dict[str, Any]) -> None:
-    minutes = int(read_yaml(CONFIG_DIR / "workflow.yaml").get("wake_interval_minutes", 10))
+    workflow = read_yaml(CONFIG_DIR / "workflow.yaml")
+    minutes = int(workflow.get("wake_interval_minutes", 10))
+    # blocked / 人工阻塞时降低唤醒频率，避免每 10 分钟刷一条无进展事件。
+    if state.get("blocking") or state.get("recovery_status") in {"human_blocked", "harness_invariant_error"}:
+        minutes = max(minutes, int(workflow.get("blocked_wake_interval_minutes", 60)))
     state["next_wake"] = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
 
 
@@ -143,6 +147,8 @@ def execute_non_agent(action: dict[str, Any]) -> dict[str, Any]:
         return {"handled": name, "notification": result}
     if name == "build_final_summary":
         return {"handled": name, "summary": build_final_summary(action["problem_id"])}
+    if name == "transition_to_completed":
+        return {"handled": name, "state": transition(target_stage="completed", problem_id=action["problem_id"], reason=action["reason"])}
     if name == "send_problem_notification":
         result = _notify("problem-complete", action["problem_id"])
         problem = load_problem(action["problem_id"])
@@ -165,8 +171,9 @@ def run_once() -> dict[str, Any]:
     try:
         reconcile_control_flags()
         task_recovery = reconcile_tasks()
-        if recovered:
-            append_jsonl(RUNTIME_DIR / "recovery.jsonl", {"at": utc_now(), "actions": recovered, "task_changes": [item.get("task_id") for item in task_recovery]})
+        stale_recovery = reconcile_stale_computation_groups()
+        if recovered or stale_recovery:
+            append_jsonl(RUNTIME_DIR / "recovery.jsonl", {"at": utc_now(), "actions": recovered, "task_changes": [item.get("task_id") for item in task_recovery], "stale_recovery": stale_recovery})
         if config().get("mail_poll_before_action", True):
             _run_mail_poll()
         action = next_action()
@@ -210,7 +217,11 @@ def run_once() -> dict[str, Any]:
                     for command in response.get("commands", [])
                 )
             ):
-                transition(target_stage="completed", problem_id=action["problem_id"], reason="跨小问审查通过，进入最终总结归档")
+                # 修复「completed 过早写入」：最终摘要生成成功后才允许迁移到 completed。
+                # 摘要门禁失败会抛出异常进入 retrying，且 next_action 会直接重试 build_final_summary，
+                # 不再把已 completed 的题目反复空转。
+                build_final_summary(action["problem_id"])
+                transition(target_stage="completed", problem_id=action["problem_id"], reason="跨小问审查通过且最终摘要已生成")
             if action.get("task_id") and response["status"] in {"success", "warning"}:
                 _mark_task_consumed(action["task_id"])
             if action.get("group_id") and response["status"] in {"success", "warning"}:
@@ -223,6 +234,11 @@ def run_once() -> dict[str, Any]:
         if agent_response and agent_response["status"] in {"success", "warning"}:
             state["recovery_status"] = "normal"
             state["failure_class"] = "quality_warning" if agent_response["status"] == "warning" else None
+        elif not agent_response and action["action"] not in {"blocked", "poll_email", "wait_for_compute"}:
+            # 非 Agent 动作成功推进状态后同样复位恢复状态，避免旧 retrying/degraded_review
+            # 在下一轮把 next_action 错误地引回 Agent。
+            state["recovery_status"] = "normal"
+            state["failure_class"] = None
         if agent_response and agent_response["status"] in {"failed", "blocked"}:
             reasons = agent_response.get("blocking_reasons") or [f"Agent {action['agent']} 返回 {agent_response['status']}"]
             failure_class = str(agent_response.get("failure_class") or "code_runtime")

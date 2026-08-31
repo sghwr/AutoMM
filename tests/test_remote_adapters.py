@@ -11,6 +11,7 @@ from automm.remote.base import AdapterError
 from automm.remote.bundle import prepare_bundle, safe_extract_zip
 from automm.remote.github import GitHubRelayAdapter, redact_secrets
 from automm.remote.kaggle import KaggleAdapter
+from automm.remote.ssh import SSHAdapter
 from automm.remote.service import reconcile_remote, submit_remote
 from automm.tasks import make_task_spec, submit_task
 
@@ -71,6 +72,24 @@ def test_kaggle_metadata_title_matches_slug(monkeypatch, project_root: Path) -> 
 def test_github_relay_rejects_disabled() -> None:
     with pytest.raises(AdapterError, match="未启用"):
         GitHubRelayAdapter({"enabled": False})
+
+
+def test_ssh_windows_remote_dir_and_control_command() -> None:
+    adapter = SSHAdapter(
+        {
+            "enabled": True,
+            "platform": "windows",
+            "remote_root": "D:/example-workdir",
+        }
+    )
+    spec = {"task_id": "task-1", "attempt": 2}
+    remote_dir = adapter._remote_dir(spec)
+    assert remote_dir == "D:/example-workdir/tasks/task-1/attempt-002"
+    command = adapter._windows_control_command(remote_dir, "check.ps1", "-Pid", "123")
+    assert command == (
+        "powershell -NoProfile -ExecutionPolicy Bypass -File "
+        "D:/example-workdir/tasks/task-1/attempt-002/check.ps1 -Pid 123"
+    )
 
 
 def test_remote_service_preserves_state_and_pulls(monkeypatch, initialized_problem, project_root: Path) -> None:

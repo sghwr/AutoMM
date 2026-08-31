@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from .common import ROOT, config_section, hash_json, read_json, read_yaml, utc_now, write_json, write_yaml
+from .common import ROOT, config_section, hash_json, read_json, read_yaml, utc_now, write_json, write_text, write_yaml
 from .problems import decide_assumption_version, load_problem, problem_dir, question_manifest, update_question
 from .state import load_state, save_state
 from .tasks import TERMINAL, list_task_groups, list_tasks, reconcile_tasks, start_queued
@@ -39,6 +40,96 @@ def _question_tasks(problem_id: str, question_id: str) -> list[dict[str, Any]]:
         for task in list_tasks()
         if task.get("problem_id") == problem_id and task.get("question_id") == question_id
     ]
+
+
+def question_summary_path(problem_id: str, question_id: str) -> Path:
+    """返回当前接受假设版本的小问总结路径。"""
+    _, manifest = question_manifest(problem_id, question_id)
+    accepted = int(manifest.get("accepted_assumption_version", 0))
+    if accepted < 1:
+        raise ValueError(f"{question_id} 没有已接受的假设版本，无法定位 question_summary.md")
+    return problem_dir(problem_id) / question_id / "versions" / f"assumption_v{accepted:03d}" / "question_summary.md"
+
+
+def _summary_has_substance(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or "待填写" in stripped:
+        return False
+    # 只有标题没有实质内容的占位文件也视为未填写。
+    body_lines = [
+        line.strip()
+        for line in stripped.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    return bool(body_lines)
+
+
+def ensure_question_summary(problem_id: str, question_id: str) -> Path:
+    """确定性地生成/补全小问总结，补齐缺失的 question_summary.md 机制。
+
+    Agent 可以在版本目录直接写 question_summary.md；若门禁执行时仍为占位或缺失，
+    Runner 会依据 manifest 中的结论/sanity/产物/任务记录生成可追溯的确定性初稿。
+    """
+    from .tasks import list_tasks as _list_tasks
+
+    path = question_summary_path(problem_id, question_id)
+    if path.exists() and _summary_has_substance(path.read_text(encoding="utf-8")):
+        return path
+    _, manifest = question_manifest(problem_id, question_id)
+    accepted = int(manifest.get("accepted_assumption_version", 0))
+    formulation = int(manifest.get("accepted_formulation_version", 0))
+    conclusion = manifest.get("conclusion", {})
+    sanity = manifest.get("sanity", {})
+    optional = manifest.get("optional_stages", {})
+    artifacts = manifest.get("artifacts", {})
+    tasks = [
+        item
+        for item in _list_tasks()
+        if item.get("problem_id") == problem_id and item.get("question_id") == question_id
+    ]
+    task_lines = "\n".join(
+        f"- `{item.get('task_id')}`：{item.get('status')}，阶段 `{item.get('stage')}`" for item in tasks
+    ) or "- 无登记计算任务"
+    artifact_lines = "\n".join(f"- `{key}`：{value}" for key, value in sorted(artifacts.items())) or "- 无"
+    content = f"""# {question_id} 小问总结
+
+> 本文件由 Runner 在 locally_completed 门禁前依据 manifest 机器事实自动生成；
+> Agent 可随后补充人工结论，但不得清空或恢复为占位内容。
+
+## 结论
+
+- conclusion_id：{conclusion.get('conclusion_id', '')}
+- version：{conclusion.get('version', '')}
+- content_hash：{conclusion.get('content_hash', '')}
+- 更新时间：{conclusion.get('updated_at', '')}
+
+## 版本
+
+- 接受假设版本：`assumption_v{accepted:03d}`
+- 接受公式版本：`formulation_v{formulation:03d}`
+
+## Sanity
+
+- L1-L4：{sanity.get('level_1_4', 'pending')}
+- L5：{sanity.get('level_5', 'pending')}
+- L6：{sanity.get('level_6', 'pending')}
+
+## 可选阶段
+
+- robustness：{optional.get('robustness', {})}
+- ablation：{optional.get('ablation', {})}
+
+## 产物
+
+{artifact_lines}
+
+## 计算任务
+
+{task_lines}
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text(path, content)
+    return path
 
 
 def next_action() -> dict[str, Any]:
@@ -108,6 +199,20 @@ def next_action() -> dict[str, Any]:
         return _action("P9", "idle", "最终研究摘要已生成并完成通知")
 
     if stage == "cross_question_review":
+        if problem.get("cross_question_review") == "passed":
+            if problem.get("summary_status") != "built":
+                return _action(
+                    "P8",
+                    "build_final_summary",
+                    "跨小问审查已通过，最终摘要尚未生成",
+                    problem_id=problem_id,
+                )
+            return _action(
+                "P8",
+                "transition_to_completed",
+                "最终摘要已生成，写入 completed 终态",
+                problem_id=problem_id,
+            )
         return _action(
             "P7",
             "run_agent",
@@ -326,6 +431,8 @@ def transition(
     elif target_stage == "completed":
         if problem.get("cross_question_review") != "passed":
             raise RuntimeError("跨小问审查未通过，不能进入 completed")
+        if problem.get("summary_status") != "built":
+            raise RuntimeError("最终摘要未生成，不能进入 completed")
         problem["status"] = "completed"
         write_json(problem_dir(problem_id) / "problem_state.json", problem)
         question_id = None
@@ -334,6 +441,7 @@ def transition(
         if not question_id:
             raise ValueError("目标阶段需要 question_id")
         if target_stage == "locally_completed":
+            ensure_question_summary(problem_id, question_id)
             validate_local_completion(problem_id, question_id)
         update_question(
             problem_id,
@@ -392,6 +500,13 @@ def validate_local_completion(problem_id: str, question_id: str) -> None:
     for field in ("conclusion_id", "version", "content_hash"):
         if not str(conclusion.get(field, "")).strip():
             errors.append(f"结论缺少 {field}")
+    summary_path = question_summary_path(problem_id, question_id)
+    if not summary_path.is_file():
+        errors.append(f"{question_id} 缺少 question_summary.md")
+    else:
+        summary_text = summary_path.read_text(encoding="utf-8").strip()
+        if not summary_text or "待填写" in summary_text:
+            errors.append(f"{question_id} 的 question_summary.md 仍为空或待填写")
     sanity = str(manifest.get("sanity", {}).get("level_1_4", "pending")).upper()
     if sanity not in {"PASS", "PASS_WITH_WARNING"}:
         errors.append(f"L1-L4 sanity 状态不可接受：{sanity}")

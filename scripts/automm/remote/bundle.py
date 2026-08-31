@@ -51,6 +51,14 @@ def main():
     if spec.get("seed") is not None:
         env.update({"AUTOMM_SEED": str(spec["seed"]), "PYTHONHASHSEED": str(spec["seed"])})
     command = [sys.executable, *spec["command"][1:]]
+    # 强制把 --output 指向 runner 计算的绝对输出目录，消除 CLI 相对路径按 cwd 错写的问题。
+    if "--output" in command:
+        output_index = command.index("--output")
+        if output_index + 1 < len(command):
+            command[output_index + 1] = str(output)
+    for index, item in enumerate(command):
+        if item.startswith("--output="):
+            command[index] = f"--output={output}"
     try:
         stdout_file = (HERE / "stdout.log").open("w", encoding="utf-8")
         stderr_file = (HERE / "stderr.log").open("w", encoding="utf-8")
@@ -61,6 +69,14 @@ def main():
         state.update({"status": "succeeded" if process.returncode == 0 else "failed",
                       "returncode": process.returncode,
                       "failure_type": None if process.returncode == 0 else "process_exit"})
+        if state["status"] == "succeeded":
+            output_files = [path for path in output.rglob("*") if path.is_file()]
+            if not output_files:
+                state.update({
+                    "status": "failed",
+                    "failure_type": "empty_output",
+                    "message": "进程返回 0 但输出目录为空，禁止判定成功",
+                })
     except subprocess.TimeoutExpired:
         state.update({"status": "timed_out", "failure_type": "timeout", "message": "任务超过 timeout_seconds"})
     except Exception as exc:

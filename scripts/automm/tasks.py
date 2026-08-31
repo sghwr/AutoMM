@@ -204,6 +204,42 @@ def list_task_groups(problem_id: str | None = None, question_id: str | None = No
     return result
 
 
+def mark_task_consumed(task_id: str) -> None:
+    """把单个任务标记为已消费，供 Runner/恢复逻辑确定性使用。"""
+    path = TASK_ROOT / task_id / "status.json"
+    status = read_json(path)
+    status["consumed"] = True
+    status["consumed_at"] = utc_now()
+    write_json(path, status)
+    write_json(TASK_ROOT / task_id / f"attempt-{int(status.get('attempt', 1)):03d}-status.json", status)
+
+
+def mark_group_consumed(group_id: str) -> None:
+    """把整组标记为已消费，并递归消费组内任务。"""
+    path = GROUP_ROOT / group_id / "group.json"
+    group = read_json(path)
+    group["consumed"] = True
+    group["consumed_at"] = utc_now()
+    write_json(path, group)
+    for task_id in group.get("task_ids", []):
+        mark_task_consumed(task_id)
+
+
+def group_has_empty_results(group: dict[str, Any]) -> bool:
+    """判定一个 ready 组是否为『假成功』：全部 succeeded 但至少一个任务显式无产物。"""
+    task_ids = group.get("task_ids", [])
+    if not task_ids:
+        return False
+    for task_id in task_ids:
+        status = read_json(TASK_ROOT / task_id / "status.json", default={})
+        if status.get("status") != "succeeded":
+            return False
+        result_files = status.get("result_files")
+        if result_files is not None and not result_files:
+            return True
+    return False
+
+
 def _attempt_numbers(directory: Path) -> list[int]:
     numbers: set[int] = set()
     for path in directory.glob("attempt-*.json"):
@@ -284,6 +320,88 @@ def submit_task(spec: dict[str, Any], *, force: bool = False, force_reason: str 
             group["status"] = "sealed" if len(group["task_ids"]) == int(group["expected_tasks"]) else "open"
             write_json(GROUP_ROOT / spec["group_id"] / "group.json", group)
     return status
+
+
+def create_replacement_computation_task(problem_id: str, question_id: str, old_group: dict[str, Any]) -> dict[str, Any]:
+    """按 task_spec.yaml 以当前代码创建 computation 替代任务（新组、新 task_id、新 output_directory）。"""
+    old_spec = read_json(TASK_ROOT / old_group["task_ids"][0] / "task.json")
+    assumption_version = old_spec["assumption_version"]
+    formulation_version = old_spec["formulation_version"]
+    code_dir = resolve_project_path(old_spec["code_path"])
+    task_spec_path = code_dir / "task_spec.yaml"
+    if not task_spec_path.is_file():
+        raise RuntimeError(f"缺少 task_spec.yaml，无法创建替代任务：{task_spec_path}")
+    ts = read_yaml(task_spec_path)
+    output_directory = str(ts["output_directory"])
+    command = [str(item) for item in ts["code"]["command"]]
+    for arg in ts["code"].get("args", []):
+        command.append(str(arg).replace("<output_directory>", output_directory))
+    group = create_task_group(problem_id, question_id, "computation", 1)
+    seed_value = ts.get("seed", old_spec.get("seed"))
+    spec = make_task_spec(
+        problem_id=problem_id,
+        question_id=question_id,
+        stage="computation",
+        command=command,
+        code_path=str(ts["code"]["path"]),
+        config_path=str(ts["config"]["path"]),
+        input_path=str(ts["input"]["path"]),
+        assumption_version=assumption_version,
+        formulation_version=formulation_version,
+        output_directory=output_directory,
+        working_directory=str(ts.get("working_directory", old_spec.get("working_directory", "."))),
+        timeout_seconds=int(ts.get("timeout_seconds", old_spec.get("timeout_seconds", 0))),
+        seed=int(seed_value) if seed_value is not None else None,
+        group_id=group["group_id"],
+        backend=str(old_spec.get("backend", "ssh")),
+    )
+    status = submit_task(spec)
+    return {"group": group, "task": status, "spec": spec}
+
+
+def reconcile_stale_computation_groups() -> list[dict[str, Any]]:
+    """自动消费『假成功』的 computation ready 组，并按当前 task_spec 重建替代任务。
+
+    这是 Runner 侧确定性修复：旧组 result_files=[]（空 zip/空产物）时不得被
+    sanity-checker 当作成功验收；有活跃替代任务时只消费旧组，否则创建新任务。
+    """
+    changes: list[dict[str, Any]] = []
+    for group in list_task_groups():
+        if group.get("stage") != "computation" or group.get("consumed") or not group.get("ready"):
+            continue
+        if not group_has_empty_results(group):
+            continue
+        problem_id = group["problem_id"]
+        question_id = group["question_id"]
+        active = [
+            task
+            for task in list_tasks()
+            if task.get("problem_id") == problem_id
+            and task.get("question_id") == question_id
+            and task.get("stage") == "computation"
+            and task.get("status") in {"queued", "running"}
+        ]
+        if active:
+            mark_group_consumed(group["group_id"])
+            changes.append({
+                "group_id": group["group_id"],
+                "action": "consumed_stale_group",
+                "active_task_ids": [task["task_id"] for task in active],
+            })
+            continue
+        try:
+            created = create_replacement_computation_task(problem_id, question_id, group)
+        except Exception as exc:  # noqa: BLE001 - 恢复逻辑需记录错误并继续对账其他组
+            changes.append({"group_id": group["group_id"], "action": "failed_to_recreate", "error": str(exc)})
+            continue
+        mark_group_consumed(group["group_id"])
+        changes.append({
+            "group_id": group["group_id"],
+            "action": "consumed_stale_group_and_created_replacement",
+            "new_group_id": created["group"]["group_id"],
+            "new_task_id": created["task"]["task_id"],
+        })
+    return changes
 
 
 def effective_workers(problem_id: str | None = None, question_id: str | None = None) -> int:

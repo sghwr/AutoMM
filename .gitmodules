@@ -1,0 +1,3 @@
+[submodule "extern/dsh-godmod"]
+	path = extern/dsh-godmod
+	url = https://github.com/echo-xianyu/dsh-godmod.git

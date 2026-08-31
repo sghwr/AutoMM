@@ -38,6 +38,26 @@ def _reset_dynamic_tree() -> None:
         source = SOURCE_ROOT / name
         if source.exists():
             shutil.copy2(source, ISOLATED_ROOT / name)
+    _normalize_local_test_config()
+
+
+def _normalize_local_test_config() -> None:
+    """把从工作区复制来的本机配置重置为测试所需的本地/关闭态。
+
+    工作区里的 config/compute.yaml 与 config/ssh.yaml 可能已按本机环境改为
+    remote/ssh；测试必须跑在确定性的 local 模式，不受本机配置影响。
+    """
+    from automm.common import read_yaml, write_yaml
+
+    compute_path = ISOLATED_ROOT / "config" / "compute.yaml"
+    compute = read_yaml(compute_path)
+    compute["default_backend"] = "local"
+    write_yaml(compute_path, compute)
+
+    ssh_path = ISOLATED_ROOT / "config" / "ssh.yaml"
+    ssh = read_yaml(ssh_path)
+    ssh["enabled"] = False
+    write_yaml(ssh_path, ssh)
 
 
 _copy_static_tree()

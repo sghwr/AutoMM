@@ -53,6 +53,22 @@ dsh --profile headless "只输出 JSON 对象 {\"status\":\"ok\"}，不要解释
 > API 凭据在 `$env:DSH_HOME\.credentials.yaml`（`refs.DEEPSEEK_API_KEY`）。
 > 若还没配置，先跑一次 `dsh web` 登录，或手动填这两个文件。
 
+### 2.1 安装 ds-godmod 预设（headless 0-let-me 需要）
+
+本仓库通过 submodule 引用 `echo-xianyu/dsh-godmod`：`extern/dsh-godmod`。
+克隆后需初始化 submodule，并把预设安装到 DSH 用户目录：
+
+```powershell
+git submodule update --init --recursive
+New-Item -ItemType Directory -Force $env:DSH_HOME\.agent-presets | Out-Null
+Copy-Item extern\dsh-godmod $env:DSH_HOME\.agent-presets\ds-godmod -Recurse -Force
+```
+
+同时确认 `headless-godmod` profile 的 `cordis.patch.yml` 已注册
+`@deepseek-ai/dsh-agent-presets`（`default: ds-godmod`），否则
+`ctx.get("agentPresets")` 为 undefined，runner 的 `presets.mount()` 会被静默跳过，
+godmod 预设不会生效。AutoMM 的 `config/agent_runtime.yaml` 使用 `profile: headless-godmod`。
+
 ---
 
 ## 3. 放置题目与数据

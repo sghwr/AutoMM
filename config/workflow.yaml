@@ -1,5 +1,7 @@
 mode: full_auto
 wake_interval_minutes: 10
+# 人工阻塞/ harness invariant 状态下降低唤醒频率，避免无进展事件刷屏。
+blocked_wake_interval_minutes: 60
 one_action_per_wake: true
 single_active_problem: true
 question_id_format: "prob{index:02d}"

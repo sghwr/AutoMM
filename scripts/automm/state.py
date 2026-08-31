@@ -140,7 +140,24 @@ def apply_control(command: str, *, source: str = "cli") -> dict[str, Any]:
 
         reconciled = reconcile_tasks()
         state["blocking"] = []
-        state["last_action"] += f"；已对账 {len(reconciled)} 个异常任务"
+        # 修复「RESUME 不能真正解除 human_blocked」：人工恢复时同时复位
+        # recovery_status / failure_class / 收敛计数，但保留累计轮数以便观测。
+        state["recovery_status"] = "normal"
+        state["failure_class"] = None
+        recovery = dict(state.get("recovery") or {})
+        recovery.update(
+            {
+                "mode": "normal",
+                "same_fingerprint_streak": 0,
+                "last_fingerprint": None,
+                "last_failure_class": None,
+                "last_error": None,
+                "last_progress": {},
+                "updated_at": utc_now(),
+            }
+        )
+        state["recovery"] = recovery
+        state["last_action"] += f"；已对账 {len(reconciled)} 个异常任务，并复位恢复状态"
     save_state(state, event="control_command", details={"command": command, "source": source})
     if command == "RESUME":
         request_pending_wakeup(source=source)

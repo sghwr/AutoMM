@@ -253,12 +253,16 @@ function renderRolls(){
 function renderHeader(){
   const s = state || {};
   const ctrl = s.control;
+  const doneFinalized = s.stage==='completed'
+    && s.problem_summary_status==='built'
+    && ['sent','skipped_disabled','failed_final'].includes(s.problem_completion_notification);
   let cls='run', led='green', label='RUNNING';
   if(ctrl==='PAUSE'){ cls='pause'; led='amber'; label='PAUSED'; }
   else if(ctrl==='STOP'){ cls='block'; led='red'; label='STOPPED'; }
   else if((s.blocking||[]).length>0 || s.recovery_status==='human_blocked'){ cls='block'; led='red'; label='BLOCKED'; }
   else if(s.stage==='idle'){ cls='idle'; led='gray'; label='IDLE'; }
-  else if(s.stage==='completed'){ cls='done'; led='cyan'; label='COMPLETED'; }
+  else if(s.stage==='completed' && doneFinalized){ cls='done'; led='cyan'; label='COMPLETED'; }
+  else if(s.stage==='completed'){ cls='pause'; led='amber'; label='FINALIZING'; }
   const cm = s.mode?.compute==='remote' ? `<span class="tag ssh">REMOTE</span>` : `<span class="tag local">LOCAL</span>`;
   const llm = s.mode?.llm==='dsh_headless' ? 'DSH' : (s.mode?.llm||'?');
   $('badges').innerHTML =

@@ -13,7 +13,7 @@ import jsonschema
 import psutil
 
 from .common import ROOT, RUNTIME_DIR, append_jsonl, read_json, read_yaml, relative, resolve_project_path, utc_now, write_json
-from .failure_policy import AgentTimeoutError, AgentTransportError, HarnessInvariantError, stage_timeout_seconds
+from .failure_policy import AgentCommandError, AgentTimeoutError, AgentTransportError, HarnessInvariantError, stage_timeout_seconds
 from .llm import ProviderError, get_provider
 from .problems import decide_assumption_version, decide_formulation_version, problem_dir, question_manifest
 from .state import append_ledger
@@ -150,7 +150,7 @@ def invoke_agent(agent: str, action: dict[str, Any], action_id: str) -> tuple[di
     try:
         jsonschema.validate(response, schema)
     except jsonschema.ValidationError as exc:
-        raise HarnessInvariantError(f"Agent response schema 校验失败：{exc.message}") from exc
+        raise AgentCommandError(f"Agent response schema 校验失败：{exc.message}") from exc
     if response["action_id"] != action_id:
         # action_id 未回显属 LLM 瞬时错误，重试即可；不应上升为 harness_invariant 硬阻塞。
         raise AgentTransportError("Agent 响应 action_id 不匹配")
@@ -164,7 +164,7 @@ def _validate_response_context(response: dict[str, Any], action: dict[str, Any])
     for key in ("problem_id", "question_id"):
         expected = action.get(key)
         if expected is not None and response.get(key) != expected:
-            raise HarnessInvariantError(f"Agent 响应 {key} 不匹配")
+            raise AgentCommandError(f"Agent 响应 {key} 不匹配")
     for value in [*response["artifacts_created"], *response["artifacts_updated"]]:
         text = str(value)
         # 区分「文件路径」与「逻辑键」：逻辑键（无路径分隔符且无扩展名）不强制文件存在，
@@ -172,11 +172,11 @@ def _validate_response_context(response: dict[str, Any], action: dict[str, Any])
         if "/" in text or "\\" in text or Path(text).suffix:
             resolve_project_path(text, must_exist=True)
     if response["status"] in {"failed", "blocked"} and response["commands"]:
-        raise HarnessInvariantError("failed/blocked 响应不得携带状态变更命令")
+        raise AgentCommandError("failed/blocked 响应不得携带状态变更命令")
     for command in response["commands"]:
         for key in ("problem_id", "question_id"):
             if key in command["arguments"] and action.get(key) is not None and command["arguments"][key] != action[key]:
-                raise HarnessInvariantError(f"Agent 命令 {command['name']} 的 {key} 越出本次动作上下文")
+                raise AgentCommandError(f"Agent 命令 {command['name']} 的 {key} 越出本次动作上下文")
 
 
 _ALLOWED_COMMANDS = {"record_artifact", "record_optional_stage", "record_conclusion", "clear_stale", "append_ledger", "record_figure_review", "record_sanity", "decide_assumption_version", "decide_formulation_version", "mark_cross_question_review", "transition"}
@@ -234,21 +234,33 @@ def _apply_one(name: str, args: dict[str, Any]) -> Any:
         return {"recorded": True}
     if name == "record_figure_review":
         return record_figure_review(**args)
-    raise HarnessInvariantError(f"不支持的 Agent 命令：{name}")
+    raise AgentCommandError(f"不支持的 Agent 命令：{name}")
 
 
 def apply_agent_commands(response: dict[str, Any], action: dict[str, Any]) -> list[dict[str, Any]]:
     """预验证后原子应用命令批次；任意失败都会恢复批次前快照。"""
     commands = response.get("commands", [])
     if any(command.get("name") not in _ALLOWED_COMMANDS for command in commands):
-        raise HarnessInvariantError("Agent command 不在白名单内")
+        raise AgentCommandError("Agent command 不在白名单内")
     problem_id, question_id = action.get("problem_id"), action.get("question_id")
     if problem_id and question_id:
         _, manifest = question_manifest(problem_id, question_id)
         valid_artifacts = set(manifest.get("artifacts", {}))
         for command in commands:
             if command["name"] == "record_artifact" and command["arguments"]["name"] not in valid_artifacts:
-                raise HarnessInvariantError(f"未知逻辑 artifact key：{command['arguments']['name']}")
+                raise AgentCommandError(f"未知逻辑 artifact key：{command['arguments']['name']}")
+    # 局部完成门禁依赖 conclusion；任何 transition 到 locally_completed 的批次
+    # 必须先在同一批次里调用 record_conclusion，否则在应用命令前直接拒绝，
+    # 避免先写入部分状态再回滚的 blocked 循环。
+    if any(
+        command.get("name") == "transition"
+        and str(command.get("arguments", {}).get("target_stage", "")) == "locally_completed"
+        for command in commands
+    ) and not any(command.get("name") == "record_conclusion" for command in commands):
+        raise AgentCommandError(
+            "Agent command batch 缺少 record_conclusion：transition 到 locally_completed 前"
+            "必须先在同一个批次记录结论（conclusion_id/content）"
+        )
     ordered = sorted(enumerate(commands), key=lambda item: (_COMMAND_PRIORITY[item[1]["name"]], item[0]))
     snapshot = _snapshot(_transaction_paths(problem_id))
     append_jsonl(RUNTIME_DIR / "agent_command_transactions.jsonl", {"at": utc_now(), "action_id": response["action_id"], "phase": "started", "count": len(commands)})
@@ -266,7 +278,7 @@ def apply_agent_commands(response: dict[str, Any], action: dict[str, Any]) -> li
     except Exception as exc:
         _restore(snapshot)
         append_jsonl(RUNTIME_DIR / "agent_command_transactions.jsonl", {"at": utc_now(), "action_id": response["action_id"], "phase": "invariant_error", "error": str(exc), "applied": applied})
-        raise HarnessInvariantError(f"Agent command batch 未能完整应用，已回滚：{exc}") from exc
+        raise AgentCommandError(f"Agent command batch 未能完整应用，已回滚：{exc}") from exc
     append_jsonl(RUNTIME_DIR / "agent_command_transactions.jsonl", {"at": utc_now(), "action_id": response["action_id"], "phase": "committed", "applied": applied})
     return applied
 
