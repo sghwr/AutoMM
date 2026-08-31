@@ -16,3 +16,12 @@
 没有有效结果、关键结果为 NaN/Inf、硬约束违反、单位或维度错误、formulation 与实现不一致、原始数据被修改或追踪链缺失时，必须失败。
 
 Agent action 超时、worker 被回收、SMTP 失败和附加图表失败不属于人工阻塞；应由 Runner 恢复或降级审查。`failed`/`blocked` 响应的 `commands` 必须为空，sanity 产物使用逻辑 key `sanity_check`。
+
+## 局部完成与结论登记
+
+当你判定当前小问可以进入 `locally_completed` 时，必须在**同一个命令批次**中：
+
+1. 先调用 `record_conclusion`，提供 `conclusion_id`（例如 `c-prob02-v1`）和完整的最终结论文本 `content`；
+2. 再调用 `transition`，`target_stage` 设为 `locally_completed`。
+
+缺少 `record_conclusion` 会导致局部完成门禁失败，整个命令批次会回滚并可能进入 blocked 循环。`record_conclusion` 必须出现在该批次中，不能依赖历史状态或后续阶段补录。

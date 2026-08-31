@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shlex
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -10,6 +11,39 @@ from typing import Any
 from ..common import ROOT, RUNTIME_DIR, read_yaml, resolve_project_path
 from .base import AdapterError, RemoteAdapter, secret_value
 from .bundle import prepare_bundle, safe_extract_zip
+
+# Windows 远端控制脚本：放在任务包里随 SFTP 上传，用 powershell -File 调用，
+# 避免在 cmd/PowerShell 默认 shell 里做复杂的 $变量内联转义。
+WINDOWS_LAUNCH_PS1 = r"""param(
+    [Parameter(Mandatory = $true)]
+    [string]$Python,
+    [Parameter(Mandatory = $true)]
+    [string]$TaskName
+)
+$ErrorActionPreference = 'Stop'
+$dir = $PSScriptRoot
+$inner = "Set-Location -LiteralPath '$dir'; & '$Python' 'runner.py'"
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$inner`""
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Force | Out-Null
+Start-ScheduledTask -TaskName $TaskName
+$TaskName
+"""
+
+WINDOWS_CHECK_PS1 = r"""param(
+    [Parameter(Mandatory = $true)]
+    [int]$Pid
+)
+if (Get-Process -Id $Pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }
+"""
+
+WINDOWS_CANCEL_PS1 = r"""param(
+    [Parameter(Mandatory = $true)]
+    [string]$TaskName
+)
+schtasks /End /TN $TaskName /F 2>$null | Out-Null
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+"""
 
 
 class SSHAdapter(RemoteAdapter):
@@ -19,6 +53,16 @@ class SSHAdapter(RemoteAdapter):
         self.config = config or read_yaml(ROOT / "config" / "ssh.yaml")
         if not self.config.get("enabled", False):
             raise AdapterError("SSH 适配器未启用")
+
+    def _is_windows(self) -> bool:
+        return str(self.config.get("platform", "") or "").strip().lower() in {"windows", "win", "nt", "windows_native"}
+
+    @staticmethod
+    def _win_cmd_quote(value: str) -> str:
+        text = str(value)
+        if any(ch.isspace() for ch in text) or '"' in text:
+            return '"' + text.replace('"', '\\"') + '"'
+        return text
 
     def _client(self):
         try:
@@ -80,8 +124,12 @@ class SSHAdapter(RemoteAdapter):
         code = stdout.channel.recv_exit_status()
         return code, stdout.read().decode("utf-8", "replace"), stderr.read().decode("utf-8", "replace")
 
-    @staticmethod
-    def _python_command(client: Any) -> str:
+    def _python_command(self, client: Any) -> str:
+        configured = str(self.config.get("remote_python", "") or "").strip()
+        if configured:
+            return configured
+        if self._is_windows():
+            return self._windows_python_command(client)
         code, stdout, stderr = SSHAdapter._exec(
             client,
             "for candidate in python3 python python.exe /root/miniconda3/bin/python "
@@ -95,16 +143,41 @@ class SSHAdapter(RemoteAdapter):
             raise AdapterError(f"SSH 远端没有可用 Python: {(stderr or stdout).strip()[-500:]}")
         return stdout.strip().splitlines()[-1]
 
+    def _windows_python_command(self, client: Any) -> str:
+        commands = [
+            'py -3 -c "import sys; print(sys.executable)"',
+            "where.exe python",
+        ]
+        for command in commands:
+            code, stdout, stderr = self._exec(client, command, timeout=20)
+            if code != 0 or not stdout.strip():
+                continue
+            lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+            if not lines:
+                continue
+            if command.startswith("py "):
+                return lines[-1]
+            for line in lines:
+                if "WindowsApps" not in line:
+                    return line
+            return lines[-1]
+        raise AdapterError("SSH 远端没有可用 Windows Python（需要 py 启动器或 python.exe）")
+
     def _remote_dir(self, spec: dict[str, Any]) -> str:
-        root = str(self.config.get("remote_root", "automm/")).strip().strip("/")
+        raw_root = str(self.config.get("remote_root", "automm/")).strip()
+        root = raw_root.replace("\\", "/").strip("/")
         attempt = int(spec.get("attempt", 1))
         return str(PurePosixPath(root) / "tasks" / spec["task_id"] / f"attempt-{attempt:03d}")
 
     @classmethod
     def _mkdirs(cls, sftp: Any, path: str) -> None:
         current = PurePosixPath(".")
-        for part in PurePosixPath(path).parts:
+        for part in PurePosixPath(path.replace("\\", "/")).parts:
             if part in {"", "."}:
+                continue
+            # Windows 盘符（如 D:）不是需要创建的目录，直接作为路径前缀保留。
+            if re.match(r"^[A-Za-z]:$", part):
+                current = PurePosixPath(part)
                 continue
             current /= part
             try:
@@ -127,11 +200,11 @@ class SSHAdapter(RemoteAdapter):
     def probe(self) -> dict[str, Any]:
         with self._client() as client:
             python_command = self._python_command(client)
-            code, stdout, stderr = self._exec(
-                client,
-                f"{shlex.quote(python_command)} --version && pwd && uname -s",
-                timeout=30,
-            )
+            if self._is_windows():
+                command = f"{self._win_cmd_quote(python_command)} --version && cmd /c cd"
+            else:
+                command = f"{shlex.quote(python_command)} --version && pwd && uname -s"
+            code, stdout, stderr = self._exec(client, command, timeout=30)
             if code != 0:
                 raise AdapterError(f"SSH 探测命令失败: {(stderr or stdout).strip()[-1000:]}")
             key = client.get_transport().get_remote_server_key()
@@ -145,23 +218,50 @@ class SSHAdapter(RemoteAdapter):
                 "remote": lines,
             }
 
+    def _add_windows_control_scripts(self, bundle: Path) -> None:
+        (bundle / "launch.ps1").write_text(WINDOWS_LAUNCH_PS1, encoding="utf-8")
+        (bundle / "check.ps1").write_text(WINDOWS_CHECK_PS1, encoding="utf-8")
+        (bundle / "cancel.ps1").write_text(WINDOWS_CANCEL_PS1, encoding="utf-8")
+
+    def _windows_control_command(self, remote_dir: str, script: str, *args: str) -> str:
+        script_path = self._win_cmd_quote(str(PurePosixPath(remote_dir) / script).replace("\\", "/"))
+        parts = [script_path, *args]
+        return "powershell -NoProfile -ExecutionPolicy Bypass -File " + " ".join(parts)
+
     def submit(self, spec: dict[str, Any]) -> dict[str, Any]:
         bundle = prepare_bundle(spec)
+        if self._is_windows():
+            self._add_windows_control_scripts(bundle)
         remote_dir = self._remote_dir(spec)
         with self._client() as client:
             python_command = self._python_command(client)
             with client.open_sftp() as sftp:
                 self._upload_tree(sftp, bundle, remote_dir)
-            quoted = shlex.quote(remote_dir)
-            command = (
-                f"cd {quoted} && (nohup {shlex.quote(python_command)} runner.py "
-                "> launcher.log 2>&1 < /dev/null & echo $!)"
-            )
+            if self._is_windows():
+                task_name = f"automm-{spec['task_id']}-a{int(spec.get('attempt', 1)):03d}"
+                command = self._windows_control_command(
+                    remote_dir,
+                    "launch.ps1",
+                    "-Python",
+                    self._win_cmd_quote(python_command),
+                    "-TaskName",
+                    self._win_cmd_quote(task_name),
+                )
+            else:
+                quoted = shlex.quote(remote_dir)
+                command = (
+                    f"cd {quoted} && (nohup {shlex.quote(python_command)} runner.py "
+                    "> launcher.log 2>&1 < /dev/null & echo $!)"
+                )
             code, stdout, stderr = self._exec(client, command)
-            if code != 0 or not stdout.strip().splitlines()[-1:].pop().isdigit():
+            if code != 0 or not stdout.strip():
                 raise AdapterError(f"SSH 远端任务启动失败: {(stderr or stdout).strip()[-1000:]}")
-            pid = int(stdout.strip().splitlines()[-1])
-        return {"status": "running", "remote_job_id": str(pid), "remote_directory": remote_dir}
+            remote_job_id = stdout.strip().splitlines()[-1].strip()
+            if self._is_windows() and not remote_job_id:
+                raise AdapterError("SSH 远端任务启动失败: 未返回计划任务名")
+            if not self._is_windows() and not remote_job_id.isdigit():
+                raise AdapterError(f"SSH 远端任务启动失败: {(stderr or stdout).strip()[-1000:]}")
+        return {"status": "running", "remote_job_id": remote_job_id, "remote_directory": remote_dir}
 
     def status(self, spec: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
         remote_dir = str(state.get("remote_directory") or self._remote_dir(spec))
@@ -174,7 +274,16 @@ class SSHAdapter(RemoteAdapter):
                     return payload
                 except OSError:
                     pass
-            if pid.isdigit():
+            if self._is_windows():
+                if pid:
+                    code, _stdout, _stderr = self._exec(
+                        client,
+                        f"schtasks /Query /TN {self._win_cmd_quote(pid)} 2>nul",
+                        timeout=20,
+                    )
+                else:
+                    code = 1
+            elif pid.isdigit():
                 code, _stdout, _stderr = self._exec(client, f"kill -0 {shlex.quote(pid)} 2>/dev/null")
             else:
                 code = 1
@@ -210,11 +319,21 @@ class SSHAdapter(RemoteAdapter):
         return {"downloaded": downloaded, "result_files": files, "result_archive": archive.relative_to(ROOT).as_posix()}
 
     def cancel(self, spec: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
-        pid = str(state.get("remote_job_id", ""))
-        if not pid.isdigit():
-            raise AdapterError("SSH 任务没有有效的远端 PID")
+        job_id = str(state.get("remote_job_id", ""))
+        if not job_id:
+            raise AdapterError("SSH 任务没有有效的远端任务标识")
         with self._client() as client:
-            code, _stdout, stderr = self._exec(client, f"kill {shlex.quote(pid)}", timeout=20)
+            if self._is_windows():
+                remote_dir = str(state.get("remote_directory") or self._remote_dir(spec))
+                code, _stdout, stderr = self._exec(
+                    client,
+                    self._windows_control_command(remote_dir, "cancel.ps1", "-TaskName", self._win_cmd_quote(job_id)),
+                    timeout=20,
+                )
+            else:
+                if not job_id.isdigit():
+                    raise AdapterError("SSH 任务没有有效的远端 PID")
+                code, _stdout, stderr = self._exec(client, f"kill {shlex.quote(job_id)}", timeout=20)
         if code != 0:
             raise AdapterError(f"SSH 任务终止失败: {stderr.strip()[-1000:]}")
         return {"status": "cancelled"}

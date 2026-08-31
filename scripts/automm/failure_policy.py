@@ -29,6 +29,14 @@ class HarnessInvariantError(RuntimeError):
     """表示状态、事务、schema 或追踪链被破坏。"""
 
 
+class AgentCommandError(HarnessInvariantError):
+    """表示 Agent 输出/命令批次不合规（可重试的 Agent 质量问题）。
+
+    这类失败不应进入 human_blocked：它们通常意味着模型没有按
+    agent_response.schema 或命令白名单输出，重跑/收敛即可恢复。
+    """
+
+
 class AgentTimeoutError(TimeoutError):
     """表示单次 Agent action 超时，不等同于人工阻塞。"""
 
@@ -45,6 +53,8 @@ def stage_timeout_seconds(stage: str | None, *, fallback: int = 1800) -> int:
 
 
 def classify_exception(exc: BaseException) -> str:
+    if isinstance(exc, AgentCommandError):
+        return "quality_warning"
     if isinstance(exc, HarnessInvariantError):
         return "harness_invariant"
     if isinstance(exc, AgentTimeoutError):

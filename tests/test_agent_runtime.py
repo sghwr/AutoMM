@@ -107,6 +107,37 @@ def test_command_batch_rolls_back_state_on_mid_batch_failure(initialized_problem
     assert manifest["artifacts"]["problem_understanding"] is False
 
 
+def test_locally_completed_without_conclusion_rejected_before_write(initialized_problem: tuple[str, Path]) -> None:
+    problem_id, _ = initialized_problem
+    payload = response()
+    payload["problem_id"] = problem_id
+    payload["commands"] = [
+        {"name": "record_artifact", "arguments": {"name": "problem_understanding", "completed": True}},
+        {"name": "transition", "arguments": {"target_stage": "locally_completed", "reason": "missing conclusion"}},
+    ]
+    with pytest.raises(HarnessInvariantError, match="record_conclusion"):
+        apply_agent_commands(payload, {"problem_id": problem_id, "question_id": "prob01", "stage": "sanity_check"})
+    _, manifest = question_manifest(problem_id, "prob01")
+    assert manifest["artifacts"]["problem_understanding"] is False
+
+
+def test_locally_completed_with_conclusion_passes_precheck(initialized_problem: tuple[str, Path]) -> None:
+    problem_id, _ = initialized_problem
+    payload = response()
+    payload["problem_id"] = problem_id
+    payload["commands"] = [
+        {"name": "record_artifact", "arguments": {"name": "problem_understanding", "completed": True}},
+        {"name": "record_conclusion", "arguments": {"conclusion_id": "c-prob01-v1", "content": "fixture conclusion"}},
+        {"name": "transition", "arguments": {"target_stage": "locally_completed", "reason": "with conclusion"}},
+    ]
+    # 预检只验证 record_conclusion 存在；完整局部完成门禁由 fixture 的其它状态决定，
+    # 这里不要求 transition 一定成功，只验证不会再因“缺少 record_conclusion”被预检拒绝。
+    try:
+        apply_agent_commands(payload, {"problem_id": problem_id, "question_id": "prob01", "stage": "sanity_check"})
+    except HarnessInvariantError as exc:
+        assert "缺少 record_conclusion" not in str(exc)
+
+
 def test_schema_enum_nodes_declare_type(project_root: Path) -> None:
     schema = read_json(project_root / "config" / "agent_response.schema.json")
 
